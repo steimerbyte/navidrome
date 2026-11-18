@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/tests"
@@ -36,6 +37,13 @@ var _ = Describe("Upload API", func() {
 		Entry("rejects an executable", "x.exe", "", `unsupported file type ".exe"`),
 		Entry("rejects a text file", "x.txt", "", `unsupported file type ".txt"`),
 	)
+
+	It("truncates a multibyte name on rune boundaries", func() {
+		got, err := uploadFileName(strings.Repeat("é", 200) + ".opus")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(utf8.ValidString(got)).To(BeTrue())
+		Expect(len(strings.TrimSuffix(got, ".opus"))).To(BeNumerically("<=", maxUploadBaseBytes))
+	})
 
 	DescribeTable("uniqueTarget",
 		func(taken []string, want string) {

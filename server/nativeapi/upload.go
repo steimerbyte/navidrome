@@ -26,6 +26,8 @@ var uploadAudioExtensions = map[string]bool{
 	".ogg": true, ".opus": true, ".wav": true, ".wma": true, ".wv": true,
 }
 
+const maxUploadBaseBytes = 120
+
 var errUploadTooLarge = errors.New("file exceeds the configured limit")
 
 func (api *Router) addUploadRoute(r chi.Router) {
@@ -128,8 +130,14 @@ func uploadFileName(raw string) (string, error) {
 		return "", fmt.Errorf("unsupported file type %q", ext)
 	}
 	base := strings.TrimSuffix(name, ext)
-	if len(base) > 120 {
-		base = base[:120]
+	// Truncate on runes, not bytes: cutting a multi-byte character leaves a
+	// name the filesystem stores but the scanner cannot read back as UTF-8.
+	if len(base) > maxUploadBaseBytes {
+		r := []rune(base)
+		for len(string(r)) > maxUploadBaseBytes {
+			r = r[:len(r)-1]
+		}
+		base = string(r)
 	}
 	return base + ext, nil
 }
