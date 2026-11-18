@@ -46,8 +46,10 @@ TOKEN=$(curl -s -X POST localhost:4533/auth/login -H 'Content-Type: application/
 curl -s -H "X-ND-Authorization: Bearer $TOKEN" -F "file=@track.flac" localhost:4533/api/upload
 ```
 
-The UI page is at `/app/#/upload` and only appears for admins while
-`Uploads.Enabled` is true.
+The UI page is at `/app/#/upload`, and only appears for admins while
+`Uploads.Enabled` is true. Its menu entry sits in the user menu (avatar,
+top right) next to Personal/Users/Transcoding, because a resource in the main
+sidebar trips a react-admin v3 render crash at desktop width.
 
 ## Scope
 
