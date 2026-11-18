@@ -114,6 +114,7 @@ type Options struct {
 	PasswordEncryptionKey           string
 	ExtAuth                         extAuthOptions
 	Plugins                         pluginsOptions
+	Uploads                         uploadsOptions `json:",omitzero"`
 	HTTPHeaders                     httpHeaderOptions   `json:",omitzero"`
 	Prometheus                      prometheusOptions   `json:",omitzero"`
 	Scanner                         scannerOptions      `json:",omitzero"`
@@ -294,6 +295,12 @@ type pluginsOptions struct {
 	LogLevel   string
 }
 
+type uploadsOptions struct {
+	Enabled     bool
+	Folder      string
+	MaxFileSize string
+}
+
 type extAuthOptions struct {
 	TrustedSources string
 	UserHeader     string
@@ -443,8 +450,10 @@ func Load(noConfigDump bool) {
 		s.validateBackupSchedule,
 		s.validatePlaylistsPath,
 		s.validatePurgeMissingOption,
+		s.validateUploadsFolder,
 		validateByteSize("MaxImageUploadSize", s.MaxImageUploadSize),
 		validateByteSize("MaxImageSize", s.MaxImageSize),
+		validateByteSize("Uploads.MaxFileSize", s.Uploads.MaxFileSize),
 		validateURL("ExtAuth.LogoutURL", s.ExtAuth.LogoutURL),
 	)
 	if err != nil {
@@ -833,6 +842,13 @@ func parseLanguages(lang string) []string {
 	return languages
 }
 
+func (s *Options) validateUploadsFolder() error {
+	if s.Uploads.Enabled && strings.TrimSpace(s.Uploads.Folder) == "" {
+		return errors.New("Uploads.Folder must be set when Uploads.Enabled is true")
+	}
+	return nil
+}
+
 func (s *Options) validatePurgeMissingOption() error {
 	allowedValues := []string{consts.PurgeMissingNever, consts.PurgeMissingAlways, consts.PurgeMissingFull}
 	valid := slices.Contains(allowedValues, s.Scanner.PurgeMissing)
@@ -1028,6 +1044,9 @@ func setViperDefaults() {
 	viper.SetDefault("enablenowplaying", true)
 	viper.SetDefault("uiplaybackreportinterval", consts.DefaultUIPlaybackReportInterval)
 	viper.SetDefault("enableartworkupload", true)
+	viper.SetDefault("uploads.enabled", false)
+	viper.SetDefault("uploads.folder", "")
+	viper.SetDefault("uploads.maxfilesize", consts.DefaultMaxUploadFileSize)
 	viper.SetDefault("maximageuploadsize", consts.DefaultMaxImageUploadSize)
 	viper.SetDefault("maximagesize", consts.DefaultMaxImageSize)
 	viper.SetDefault("enablesharing", true)

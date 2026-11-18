@@ -250,6 +250,16 @@ const wrapperDataProvider = {
   },
   deleteImage: (resource, id) =>
     fetchData(`${REST_URL}/${resource}/${id}/image`, { method: 'DELETE' }),
+  // One audio file per request; the upload page loops over the selection.
+  uploadFile: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return fetchData(`${REST_URL}/upload`, {
+      method: 'POST',
+      headers: new Headers({}),
+      body: formData,
+    })
+  },
   getPlaylistTracks: (playlistId) =>
     fetchData(`${REST_URL}/playlist/${playlistId}/tracks`),
   exportPlaylist: (playlistId) =>

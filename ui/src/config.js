@@ -47,6 +47,7 @@ const defaultConfig = {
   separator: '/',
   enableInspect: true,
   pluginsEnabled: true,
+  uploadsEnabled: false,
 }
 
 let config

@@ -457,6 +457,19 @@
         "configKey": "key",
         "configValue": "value"
       }
+    },
+    "upload": {
+      "name": "Upload",
+      "dropzone": "Drag audio files here",
+      "selectFiles": "Select files",
+      "unsupported": "Unsupported file type",
+      "summary": "%{done} uploaded, %{failed} failed",
+      "status": {
+        "queued": "Queued",
+        "uploading": "Uploading",
+        "done": "Done",
+        "error": "Failed"
+      }
     }
   },
   "ra": {
