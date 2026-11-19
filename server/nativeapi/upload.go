@@ -2,6 +2,7 @@ package nativeapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/dustin/go-humanize"
@@ -197,34 +199,96 @@ func writeUpload(dir, name string, src io.Reader, maxSize int64) (string, error)
 	return target, nil
 }
 
-// uploadFFmpeg re-encodes src into dst. It is a variable because ffmpeg.New()
-// resolves and caches the binary in a sync.Once, which a test cannot reset.
-var uploadFFmpeg = func(src, dst string) ([]byte, error) {
-	ffmpegPath, err := ffmpeg.New().CmdPath()
-	if err != nil {
-		return nil, err
-	}
-	return exec.Command(ffmpegPath,
-		"-v", "error", "-y",
-		"-i", src,
-		// Keep the audio and, if present, the cover; -map_metadata copies the tags.
+// uploadFFmpeg re-encodes src into dst, carrying tags over. It is a variable
+// because ffmpeg.New() resolves and caches the binary in a sync.Once, which a
+// test cannot reset.
+var uploadFFmpeg = func(ffmpegPath, ffprobePath, src, dst string) ([]byte, error) {
+	args := []string{"-v", "error", "-y", "-i", src,
+		// Keep the audio and, if present, the cover art stream.
 		"-map", "0:a:0", "-map", "0:v?", "-map_metadata", "0",
+	}
+	// -map_metadata only copies format-level tags. Ogg/Opus keeps them per stream,
+	// so a plain conversion would silently drop artist/title/album.
+	for _, tag := range probeTags(ffprobePath, src) {
+		args = append(args, "-metadata", tag)
+	}
+	args = append(args,
 		"-c:a", "libmp3lame", "-q:a", "0", "-c:v", "copy",
 		"-id3v2_version", "3",
 		"-metadata:s:v", "title=Album cover", "-metadata:s:v", "comment=Cover (front)",
 		dst,
-	).CombinedOutput()
+	)
+	return exec.Command(ffmpegPath, args...).CombinedOutput()
 }
 
 // uploadFFmpegReal is the production runner, restored by tests.
 var uploadFFmpegReal = uploadFFmpeg
 
+// probeTags returns the source's format-level and first audio stream's tags as
+// key=value arguments for ffmpeg. Values are reported by ffprobe, not by the client.
+func probeTags(ffprobePath, src string) []string {
+	// Two separate -show_entries flags: "format_tags:stream_tags" is parsed as a
+	// file name by ffprobe, which then fails and would silently drop every tag.
+	// codec_type must be requested explicitly, or the stream filter below matches
+	// nothing and the audio tags are never read.
+	out, err := exec.Command(ffprobePath, "-v", "error",
+		"-show_entries", "format_tags", "-show_entries", "stream_tags",
+		"-show_entries", "stream=codec_type",
+		"-of", "json", src).Output()
+	if err != nil {
+		return nil
+	}
+	var probe struct {
+		Format struct {
+			Tags map[string]string `json:"tags"`
+		} `json:"format"`
+		Streams []struct {
+			CodecType string            `json:"codec_type"`
+			Tags      map[string]string `json:"tags"`
+		} `json:"streams"`
+	}
+	if json.Unmarshal(out, &probe) != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var tags []string
+	add := func(k, v string) {
+		k = strings.ToLower(k)
+		// Drop encoder and container bookkeeping: they describe the old file.
+		if v == "" || seen[k] || k == "encoder" || k == "language" {
+			return
+		}
+		seen[k] = true
+		tags = append(tags, k+"="+v)
+	}
+	for k, v := range probe.Format.Tags {
+		add(k, v)
+	}
+	for _, s := range probe.Streams {
+		if s.CodecType != "audio" {
+			continue
+		}
+		for k, v := range s.Tags {
+			add(k, v)
+		}
+		break
+	}
+	sort.Strings(tags) // deterministic argv, so tests can assert on it
+	return tags
+}
+
 // convertToMP3 re-encodes src with libmp3lame at the highest VBR setting. The cover
 // art stream is copied rather than re-encoded and the source tags are carried over,
 // because Navidrome serves the embedded picture from the stored file.
 func convertToMP3(src string) (string, error) {
+	ffmpegPath, err := ffmpeg.New().CmdPath()
+	if err != nil {
+		return "", err
+	}
+	// ffprobe sits next to ffmpeg and is named after it (see core/ffmpeg).
+	ffprobePath := strings.Replace(filepath.Base(ffmpegPath), "ffmpeg", "ffprobe", 1)
 	dst := src + ".mp3"
-	if out, err := uploadFFmpeg(src, dst); err != nil {
+	if out, err := uploadFFmpeg(ffmpegPath, filepath.Join(filepath.Dir(ffmpegPath), ffprobePath), src, dst); err != nil {
 		_ = os.Remove(dst)
 		return "", fmt.Errorf("converting to mp3: %w: %s", err, strings.TrimSpace(string(out)))
 	}

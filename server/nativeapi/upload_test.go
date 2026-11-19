@@ -182,7 +182,7 @@ var _ = Describe("Upload API", func() {
 			})
 			converted = nil
 			DeferCleanup(func() { uploadFFmpeg = uploadFFmpegReal })
-			uploadFFmpeg = func(src, dst string) ([]byte, error) {
+			uploadFFmpeg = func(_, _, src, dst string) ([]byte, error) {
 				converted = append(converted, filepath.Base(src))
 				return nil, os.WriteFile(dst, []byte("mp3"), 0o644)
 			}
@@ -210,7 +210,7 @@ var _ = Describe("Upload API", func() {
 		})
 
 		It("leaves no file behind when the conversion fails", func() {
-			uploadFFmpeg = func(src, dst string) ([]byte, error) {
+			uploadFFmpeg = func(_, _, src, dst string) ([]byte, error) {
 				// ffmpeg writes partial output before failing
 				Expect(os.WriteFile(dst, []byte("partial"), 0o644)).To(Succeed())
 				return []byte("boom"), errors.New("exit status 1")
@@ -268,6 +268,31 @@ var _ = Describe("Upload API", func() {
 			Expect(string(probe)).To(ContainSubstring("codec_name=mp3"))
 			Expect(string(probe)).To(ContainSubstring("codec_type=video"))
 			Expect(string(probe)).To(ContainSubstring("TAG:album=Album"))
+		})
+
+		// Opus keeps artist/title/album per stream, not at format level, so
+		// -map_metadata alone drops them. Regression guard for that silent loss.
+		It("keeps the tags of a source that stores them per stream", func() {
+			dir := GinkgoT().TempDir()
+			src := filepath.Join(dir, "src.opus")
+			out, err := exec.Command("ffmpeg", "-v", "error", "-y",
+				"-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+				"-c:a", "libopus",
+				"-metadata", "artist=Opus Artist", "-metadata", "title=Opus Title", "-metadata", "album=Opus Album",
+				src).CombinedOutput()
+			if err != nil {
+				Skip("ffmpeg cannot produce the opus fixture: " + string(out))
+			}
+
+			got, err := convertToMP3(src)
+			Expect(err).ToNot(HaveOccurred())
+
+			probe, err := exec.Command("ffprobe", "-v", "error",
+				"-show_entries", "format_tags", "-of", "default=noprint_wrappers=1", got).CombinedOutput()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(probe)).To(ContainSubstring("TAG:artist=Opus Artist"))
+			Expect(string(probe)).To(ContainSubstring("TAG:title=Opus Title"))
+			Expect(string(probe)).To(ContainSubstring("TAG:album=Opus Album"))
 		})
 	})
 })
