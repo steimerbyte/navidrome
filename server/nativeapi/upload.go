@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/utils"
 )
@@ -173,11 +175,64 @@ func writeUpload(dir, name string, src io.Reader, maxSize int64) (string, error)
 		return fail(err)
 	}
 
+	// Conversion runs on the complete temp file, before it becomes visible in the
+	// library, so a failed conversion can never leave a half-written track behind.
+	if convertTo := strings.ToLower(strings.TrimSpace(conf.Server().Uploads.ConvertTo)); convertTo == consts.UploadConvertMP3 {
+		if filepath.Ext(name) != ".mp3" {
+			// Assign to a separate variable: on error convertToMP3 returns "", and
+			// tmpName must still point at the file fail() has to remove.
+			converted, convErr := convertToMP3(tmpName)
+			if convErr != nil {
+				return fail(convErr)
+			}
+			tmpName = converted
+			name = strings.TrimSuffix(name, filepath.Ext(name)) + ".mp3"
+		}
+	}
+
 	target := uniqueTarget(dir, name)
 	if err := os.Rename(tmpName, target); err != nil {
 		return fail(err)
 	}
 	return target, nil
+}
+
+// uploadFFmpeg re-encodes src into dst. It is a variable because ffmpeg.New()
+// resolves and caches the binary in a sync.Once, which a test cannot reset.
+var uploadFFmpeg = func(src, dst string) ([]byte, error) {
+	ffmpegPath, err := ffmpeg.New().CmdPath()
+	if err != nil {
+		return nil, err
+	}
+	return exec.Command(ffmpegPath,
+		"-v", "error", "-y",
+		"-i", src,
+		// Keep the audio and, if present, the cover; -map_metadata copies the tags.
+		"-map", "0:a:0", "-map", "0:v?", "-map_metadata", "0",
+		"-c:a", "libmp3lame", "-q:a", "0", "-c:v", "copy",
+		"-id3v2_version", "3",
+		"-metadata:s:v", "title=Album cover", "-metadata:s:v", "comment=Cover (front)",
+		dst,
+	).CombinedOutput()
+}
+
+// uploadFFmpegReal is the production runner, restored by tests.
+var uploadFFmpegReal = uploadFFmpeg
+
+// convertToMP3 re-encodes src with libmp3lame at the highest VBR setting. The cover
+// art stream is copied rather than re-encoded and the source tags are carried over,
+// because Navidrome serves the embedded picture from the stored file.
+func convertToMP3(src string) (string, error) {
+	dst := src + ".mp3"
+	if out, err := uploadFFmpeg(src, dst); err != nil {
+		_ = os.Remove(dst)
+		return "", fmt.Errorf("converting to mp3: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if err := os.Remove(src); err != nil {
+		_ = os.Remove(dst)
+		return "", err
+	}
+	return dst, nil
 }
 
 // shortcut: existence check and rename are not atomic; a single admin uploading in

@@ -124,6 +124,8 @@ const (
 	DefaultMaxImageUploadSize = "10MB"
 	DefaultMaxImageSize       = "20MB"
 	DefaultMaxUploadFileSize  = "500MB"
+	// UploadConvertMP3 is the only target Uploads.ConvertTo implements.
+	UploadConvertMP3 = "mp3"
 )
 
 // Prometheus options

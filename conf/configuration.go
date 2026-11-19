@@ -307,6 +307,7 @@ type uploadsOptions struct {
 	Enabled     bool
 	Folder      string
 	MaxFileSize string
+	ConvertTo   string
 }
 
 type extAuthOptions struct {
@@ -854,6 +855,13 @@ func (s *Options) validateUploadsFolder() error {
 	if s.Uploads.Enabled && strings.TrimSpace(s.Uploads.Folder) == "" {
 		return errors.New("Uploads.Folder must be set when Uploads.Enabled is true")
 	}
+	// Only mp3 is implemented. Accepting another value would silently store the
+	// file in its original format while the config claims otherwise.
+	switch strings.ToLower(strings.TrimSpace(s.Uploads.ConvertTo)) {
+	case "", consts.UploadConvertMP3:
+	default:
+		return fmt.Errorf("invalid Uploads.ConvertTo value: '%s'. Must be empty or '%s'", s.Uploads.ConvertTo, consts.UploadConvertMP3)
+	}
 	return nil
 }
 
@@ -1057,6 +1065,7 @@ func setViperDefaults() {
 	viper.SetDefault("uploads.enabled", false)
 	viper.SetDefault("uploads.folder", "")
 	viper.SetDefault("uploads.maxfilesize", consts.DefaultMaxUploadFileSize)
+	viper.SetDefault("uploads.convertto", "")
 	viper.SetDefault("maximageuploadsize", consts.DefaultMaxImageUploadSize)
 	viper.SetDefault("maximagesize", consts.DefaultMaxImageSize)
 	viper.SetDefault("enablesharing", true)

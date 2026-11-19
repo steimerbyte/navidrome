@@ -2,15 +2,21 @@ package nativeapi
 
 import (
 	"bytes"
+	"errors"
+	"image"
+	"image/jpeg"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/ffmpeg"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -159,4 +165,122 @@ var _ = Describe("Upload API", func() {
 			Expect(os.ReadDir(dir)).To(BeEmpty())
 		})
 	})
+
+	Describe("Uploads.ConvertTo", func() {
+		var dir string
+		var converted []string
+
+		// The real encoder is swapped for a recorder: ffmpeg.New() caches the binary
+		// in a sync.Once, so a test cannot make the path configurable after the fact.
+		BeforeEach(func() {
+			dir = filepath.Join(GinkgoT().TempDir(), "uploads")
+			Expect(os.MkdirAll(dir, 0o755)).To(Succeed())
+			conf.Update(func(c *conf.Options) {
+				c.Uploads.Enabled = true
+				c.Uploads.Folder = dir
+				c.Uploads.ConvertTo = consts.UploadConvertMP3
+			})
+			converted = nil
+			DeferCleanup(func() { uploadFFmpeg = uploadFFmpegReal })
+			uploadFFmpeg = func(src, dst string) ([]byte, error) {
+				converted = append(converted, filepath.Base(src))
+				return nil, os.WriteFile(dst, []byte("mp3"), 0o644)
+			}
+		})
+
+		It("converts a non-mp3 upload and stores it with an mp3 name", func() {
+			saved, err := writeUpload(dir, "track.opus", strings.NewReader("ogg"), 1024)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved).To(Equal(filepath.Join(dir, "track.mp3")))
+			Expect(converted).To(HaveLen(1))
+			Expect(os.ReadDir(dir)).To(HaveLen(1))
+			got, err := os.ReadFile(saved)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(Equal([]byte("mp3")))
+		})
+
+		It("does not convert a file that is already mp3", func() {
+			saved, err := writeUpload(dir, "track.mp3", strings.NewReader("audio"), 1024)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved).To(Equal(filepath.Join(dir, "track.mp3")))
+			Expect(converted).To(BeEmpty())
+			got, err := os.ReadFile(saved)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(Equal([]byte("audio")))
+		})
+
+		It("leaves no file behind when the conversion fails", func() {
+			uploadFFmpeg = func(src, dst string) ([]byte, error) {
+				// ffmpeg writes partial output before failing
+				Expect(os.WriteFile(dst, []byte("partial"), 0o644)).To(Succeed())
+				return []byte("boom"), errors.New("exit status 1")
+			}
+			saved, err := writeUpload(dir, "track.opus", strings.NewReader("ogg"), 1024)
+			Expect(err).To(MatchError(ContainSubstring("converting to mp3")))
+			Expect(saved).To(BeEmpty())
+			Expect(os.ReadDir(dir)).To(BeEmpty())
+		})
+
+		It("keeps the collision-avoidance naming after conversion", func() {
+			Expect(os.WriteFile(filepath.Join(dir, "track.mp3"), []byte("existing"), 0o644)).To(Succeed())
+			saved, err := writeUpload(dir, "track.opus", strings.NewReader("ogg"), 1024)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(saved).To(Equal(filepath.Join(dir, "track (2).mp3")))
+			existing, err := os.ReadFile(filepath.Join(dir, "track.mp3"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(existing).To(Equal([]byte("existing")))
+		})
+	})
+
+	Describe("convertToMP3 with the real ffmpeg", func() {
+		BeforeEach(func() {
+			if _, err := ffmpeg.New().CmdPath(); err != nil {
+				Skip("ffmpeg is not installed")
+			}
+		})
+
+		It("produces an mp3 and carries the cover stream over", func() {
+			dir := GinkgoT().TempDir()
+			// FLAC holds a JPEG cover natively; the Ogg muxer refuses one, so an
+			// opus fixture with cover art cannot be produced by ffmpeg alone.
+			src := filepath.Join(dir, ".upload-src.flac")
+			// A 1s tone plus a JPEG cover, the shape a downloaded track has.
+			cover := filepath.Join(dir, "cover.jpg")
+			Expect(os.WriteFile(cover, mustJPEG(), 0o644)).To(Succeed())
+			out, err := exec.Command("ffmpeg", "-v", "error", "-y",
+				"-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+				"-i", cover, "-map", "0:a", "-map", "1:v", "-c:a", "flac", "-c:v", "copy",
+				"-disposition:v", "attached_pic",
+				"-metadata", "artist=Artist", "-metadata", "title=Title", "-metadata", "album=Album",
+				src).CombinedOutput()
+			if err != nil {
+				Skip("ffmpeg cannot produce the flac fixture: " + string(out))
+			}
+
+			got, err := convertToMP3(src)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(filepath.Ext(got)).To(Equal(".mp3"))
+
+			probe, err := exec.Command("ffprobe", "-v", "error",
+				"-show_entries", "stream=codec_name,codec_type", "-show_entries", "format_tags=album",
+				"-of", "default=noprint_wrappers=1", got).CombinedOutput()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(probe)).To(ContainSubstring("codec_name=mp3"))
+			Expect(string(probe)).To(ContainSubstring("codec_type=video"))
+			Expect(string(probe)).To(ContainSubstring("TAG:album=Album"))
+		})
+	})
 })
+
+// mustJPEG returns a minimal valid JPEG for the cover-art fixture.
+func mustJPEG() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for i := range img.Pix {
+		img.Pix[i] = 0x80
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, nil); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}

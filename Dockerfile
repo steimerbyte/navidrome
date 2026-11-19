@@ -240,6 +240,10 @@ ENTRYPOINT ["/app/navidrome"]
 #   owned by uid 100000, which is root inside the unprivileged LXC.
 FROM ghcr.io/arabcoders/ytptube:latest AS combined
 
+# The base image runs as the unprivileged `app` user, which cannot chmod a
+# root-owned copy or create /.nddockerenv. Both services ran as root standalone.
+USER 0:0
+
 LABEL org.opencontainers.image.source="https://github.com/steimerbyte/navidrome"
 
 COPY --from=binary /navidrome /app/navidrome
@@ -267,6 +271,5 @@ ENV ND_DATAFOLDER=/data \
     YTP_DEFAULT_PRESET=audio_only
 
 EXPOSE 4533
-USER 0:0
 
 ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/combined-entrypoint.sh"]
