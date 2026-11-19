@@ -178,56 +178,6 @@ RUN <<EOT
 EOT
 
 ########################################################################################################################
-### Combined image: Navidrome + ytptube (downloader) in one container
-#
-# Navidrome serves the UI and proxies /downloader to ytptube on loopback, so the
-# downloader can be embedded in a same-origin iframe instead of a new tab.
-#
-# Deviations from upstream, each with its reason:
-# - Base is the ytptube image, not alpine: it already ships python3, yt-dlp, deno,
-#   ffmpeg (with libwebp_anim) and tini. Installing those on alpine would duplicate
-#   ~1.1GB of runtime.
-# - The binary stage is the *static* glibc build. It runs unchanged on this Debian
-#   base. Native libwebp (purego/dlopen) needs a dynamic interpreter, so artwork
-#   falls back to the WASM encoder — same trade-off as the `nodynamic` tag.
-# - mpv is absent (ytptube has none) and the jukebox is therefore unavailable.
-#   Jukebox is disabled by default, so this changes nothing unless someone enables it.
-# - USER 0:0: both services ran as root standalone. The host bind mounts are owned
-#   by uid 100000, which is root inside the unprivileged LXC.
-FROM ghcr.io/arabcoders/ytptube:latest AS combined
-
-LABEL org.opencontainers.image.source="https://github.com/steimerbyte/navidrome"
-
-COPY --from=binary /navidrome /app/navidrome
-COPY release/combined-entrypoint.sh /usr/local/bin/combined-entrypoint.sh
-RUN chmod +x /usr/local/bin/combined-entrypoint.sh && \
-    mkdir -p /data /music /downloads/.tmp && \
-    touch /.nddockerenv
-
-# ND_PORT stays Navidrome's; ytptube binds loopback only and is reached through
-# the proxy, so 8081 is never published.
-ENV ND_DATAFOLDER=/data \
-    ND_MUSICFOLDER=/music \
-    ND_CONFIGFILE=/data/navidrome.toml \
-    ND_PORT=4533 \
-    ND_DOWNLOADER_URL=/downloader \
-    ND_DOWNLOADER_PROXYTARGET=http://127.0.0.1:8081 \
-    ND_UPLOADS_ENABLED=true \
-    ND_UPLOADS_FOLDER=/music/Inbox \
-    ND_SCANNERPURGEMISSING=full \
-    YTP_BASE_PATH=/downloader \
-    YTP_HOST=127.0.0.1 \
-    YTP_CONFIG_PATH=/config \
-    YTP_DOWNLOAD_PATH=/downloads/Inbox \
-    YTP_TEMP_PATH=/downloads/.tmp \
-    YTP_DEFAULT_PRESET=audio_only
-
-EXPOSE 4533
-USER 0:0
-
-ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/combined-entrypoint.sh"]
-
-########################################################################################################################
 ### Build Final Image
 FROM alpine:3.22 AS final
 LABEL maintainer="deluan@navidrome.org"
@@ -265,3 +215,58 @@ ENV PATH="/app:${PATH}"
 
 ENTRYPOINT ["/app/navidrome"]
 
+
+########################################################################################################################
+### Combined image: Navidrome + ytptube (downloader) in one container
+#
+# This is the last stage, so a plain `docker build` (no --target) produces it. The
+# upstream stages above stay untouched and `final` remains buildable via --target.
+#
+# Navidrome serves the UI and proxies /downloader to ytptube on loopback, so the
+# downloader is embedded in a same-origin iframe instead of opening in a new tab.
+#
+# Deviations from upstream, each with its reason:
+# - Base is the ytptube image, not alpine: it already ships python3, yt-dlp, deno,
+#   ffmpeg (with libwebp_anim), curl and tini. Reinstalling those on alpine would
+#   duplicate ~1.1GB of runtime.
+# - The `binary` stage is the static glibc build, which runs unchanged on this
+#   Debian base without musl. Native libwebp via purego/dlopen needs a dynamic
+#   interpreter, so artwork uses the WASM encoder here - the same fallback the
+#   `nodynamic` tag forces on 32-bit targets.
+# - mpv is absent (ytptube ships none), so the jukebox/player feature is not
+#   available in this image. It is disabled by default; nothing changes unless
+#   ND_JUKEBOX_ENABLED is turned on.
+# - USER 0:0: both services ran as root standalone, and the host bind mounts are
+#   owned by uid 100000, which is root inside the unprivileged LXC.
+FROM ghcr.io/arabcoders/ytptube:latest AS combined
+
+LABEL org.opencontainers.image.source="https://github.com/steimerbyte/navidrome"
+
+COPY --from=binary /navidrome /app/navidrome
+COPY release/combined-entrypoint.sh /usr/local/bin/combined-entrypoint.sh
+RUN chmod +x /usr/local/bin/combined-entrypoint.sh && \
+    mkdir -p /data /music /downloads/.tmp && \
+    touch /.nddockerenv
+
+# ytptube listens on loopback only and is reached through the proxy, so its port
+# is never published. ND_PORT stays Navidrome's, as in the final stage.
+ENV ND_DATAFOLDER=/data \
+    ND_MUSICFOLDER=/music \
+    ND_CONFIGFILE=/data/navidrome.toml \
+    ND_PORT=4533 \
+    ND_DOWNLOADER_URL=/downloader \
+    ND_DOWNLOADER_PROXYTARGET=http://127.0.0.1:8081 \
+    ND_UPLOADS_ENABLED=true \
+    ND_UPLOADS_FOLDER=/music/Inbox \
+    ND_SCANNERPURGEMISSING=full \
+    YTP_BASE_PATH=/downloader \
+    YTP_HOST=127.0.0.1 \
+    YTP_CONFIG_PATH=/config \
+    YTP_DOWNLOAD_PATH=/downloads/Inbox \
+    YTP_TEMP_PATH=/downloads/.tmp \
+    YTP_DEFAULT_PRESET=audio_only
+
+EXPOSE 4533
+USER 0:0
+
+ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/combined-entrypoint.sh"]
