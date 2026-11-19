@@ -299,7 +299,8 @@ type pluginsOptions struct {
 // downloaderOptions only feeds a sidebar link in the UI; the downloader itself
 // is an external service that writes into the music folder.
 type downloaderOptions struct {
-	URL string
+	URL         string
+	ProxyTarget string
 }
 
 type uploadsOptions struct {
@@ -1052,6 +1053,7 @@ func setViperDefaults() {
 	viper.SetDefault("uiplaybackreportinterval", consts.DefaultUIPlaybackReportInterval)
 	viper.SetDefault("enableartworkupload", true)
 	viper.SetDefault("downloader.url", "")
+	viper.SetDefault("downloader.proxytarget", "")
 	viper.SetDefault("uploads.enabled", false)
 	viper.SetDefault("uploads.folder", "")
 	viper.SetDefault("uploads.maxfilesize", consts.DefaultMaxUploadFileSize)

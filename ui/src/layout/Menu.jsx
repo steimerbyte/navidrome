@@ -103,23 +103,35 @@ const Menu = ({ dense = false }) => {
     )
   }
 
-  // External services live next to the internal resources but open in a new tab:
-  // they are separate applications, not react-admin routes.
-  const renderExternalMenuItemLink = (url, label, Icon) => (
-    <MenuItem
-      key={url}
-      className={classes.root}
-      component="a"
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      button
-      dense={dense}
-    >
-      <Icon />
-      {open && <span style={{ marginLeft: 24 }}>{label}</span>}
-    </MenuItem>
-  )
+  // A relative URL means the downloader is proxied under the same origin: it gets
+  // an internal page with an iframe. An absolute URL is a separate service and
+  // opens in a new tab.
+  const renderDownloaderMenuItemLink = (url, label, Icon) =>
+    /^https?:/i.test(url) ? (
+      <MenuItem
+        key={url}
+        className={classes.root}
+        component="a"
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        button
+        dense={dense}
+      >
+        <Icon />
+        {open && <span style={{ marginLeft: 24 }}>{label}</span>}
+      </MenuItem>
+    ) : (
+      <MenuItemLink
+        key={url}
+        to={url}
+        activeClassName={classes.active}
+        primaryText={label}
+        leftIcon={<Icon />}
+        sidebarIsOpen={open}
+        dense={dense}
+      />
+    )
 
   const subItems = (subMenu) => (resource) =>
     resource.hasList && resource.options && resource.options.subMenu === subMenu
@@ -146,7 +158,7 @@ const Menu = ({ dense = false }) => {
       </SubMenu>
       {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
       {config.downloaderUrl &&
-        renderExternalMenuItemLink(
+        renderDownloaderMenuItemLink(
           config.downloaderUrl,
           translate('menu.downloader', { _: 'Downloader' }),
           GetAppIcon,
