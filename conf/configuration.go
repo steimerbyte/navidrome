@@ -115,6 +115,7 @@ type Options struct {
 	ExtAuth                         extAuthOptions
 	Plugins                         pluginsOptions
 	Uploads                         uploadsOptions `json:",omitzero"`
+	Downloader                      downloaderOptions `json:",omitzero"`
 	HTTPHeaders                     httpHeaderOptions   `json:",omitzero"`
 	Prometheus                      prometheusOptions   `json:",omitzero"`
 	Scanner                         scannerOptions      `json:",omitzero"`
@@ -293,6 +294,12 @@ type pluginsOptions struct {
 	CacheSize  string
 	AutoReload bool
 	LogLevel   string
+}
+
+// downloaderOptions only feeds a sidebar link in the UI; the downloader itself
+// is an external service that writes into the music folder.
+type downloaderOptions struct {
+	URL string
 }
 
 type uploadsOptions struct {
@@ -1044,6 +1051,7 @@ func setViperDefaults() {
 	viper.SetDefault("enablenowplaying", true)
 	viper.SetDefault("uiplaybackreportinterval", consts.DefaultUIPlaybackReportInterval)
 	viper.SetDefault("enableartworkupload", true)
+	viper.SetDefault("downloader.url", "")
 	viper.SetDefault("uploads.enabled", false)
 	viper.SetDefault("uploads.folder", "")
 	viper.SetDefault("uploads.maxfilesize", consts.DefaultMaxUploadFileSize)

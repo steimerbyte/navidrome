@@ -51,6 +51,24 @@ The UI page is at `/app/#/upload`, and only appears for admins while
 top right) next to Personal/Users/Transcoding, because a resource in the main
 sidebar trips a react-admin v3 render crash at desktop width.
 
+## Albums
+
+The scanner fills an empty album tag with the track title (`mapAlbumName` in
+`model/metadata/persistent_ids.go`). Single tracks from a downloader or from this
+page therefore show their own name instead of a library-wide "[Unknown Album]"
+bucket; multi-track releases that do carry an album tag are unaffected.
+
+## Downloader link
+
+`Downloader.URL` / `ND_DOWNLOADER_URL` adds an external "Downloader" entry to the
+sidebar (opens in a new tab). It is only a link: the download service itself
+(e.g. ytptube) runs separately and must write into the music folder.
+
+```yaml
+environment:
+  ND_DOWNLOADER_URL: http://192.168.179.78:8087
+```
+
 ## Scope
 
 Deliberately not implemented: chunked/resumable uploads, tag editing, library

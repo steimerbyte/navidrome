@@ -48,6 +48,7 @@ const defaultConfig = {
   enableInspect: true,
   pluginsEnabled: true,
   uploadsEnabled: false,
+  downloaderUrl: '',
 }
 
 let config

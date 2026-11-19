@@ -134,9 +134,13 @@ func (md Metadata) mapTrackTitle() string {
 	return utils.BaseName(md.FilePath())
 }
 
+// mapAlbumName falls back to the track title: files that carry no album tag
+// (single tracks from a downloader or the upload page) then show their own name
+// instead of a library-wide "[Unknown Album]" bucket.
 func (md Metadata) mapAlbumName() string {
 	return cmp.Or(
 		md.String(model.TagAlbum),
+		md.String(model.TagTitle),
 		consts.UnknownAlbum,
 	)
 }

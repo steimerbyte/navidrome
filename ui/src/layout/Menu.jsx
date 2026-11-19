@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { useSelector } from 'react-redux'
-import { Divider, makeStyles } from '@material-ui/core'
+import { Divider, makeStyles, MenuItem } from '@material-ui/core'
 import clsx from 'clsx'
 import { useTranslate, MenuItemLink, getResources } from 'react-admin'
 import ViewListIcon from '@material-ui/icons/ViewList'
+import GetAppIcon from '@material-ui/icons/GetApp'
 import AlbumIcon from '@material-ui/icons/Album'
 import SubMenu from './SubMenu'
 import { humanize, pluralize } from 'inflection'
@@ -102,6 +103,24 @@ const Menu = ({ dense = false }) => {
     )
   }
 
+  // External services live next to the internal resources but open in a new tab:
+  // they are separate applications, not react-admin routes.
+  const renderExternalMenuItemLink = (url, label, Icon) => (
+    <MenuItem
+      key={url}
+      className={classes.root}
+      component="a"
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      button
+      dense={dense}
+    >
+      <Icon />
+      {open && <span style={{ marginLeft: 24 }}>{label}</span>}
+    </MenuItem>
+  )
+
   const subItems = (subMenu) => (resource) =>
     resource.hasList && resource.options && resource.options.subMenu === subMenu
 
@@ -126,6 +145,12 @@ const Menu = ({ dense = false }) => {
         )}
       </SubMenu>
       {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
+      {config.downloaderUrl &&
+        renderExternalMenuItemLink(
+          config.downloaderUrl,
+          translate('menu.downloader', { _: 'Downloader' }),
+          GetAppIcon,
+        )}
       {config.devSidebarPlaylists && open ? (
         <>
           <Divider />

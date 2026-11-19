@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/metadata"
 	"github.com/navidrome/navidrome/tests"
@@ -44,6 +45,23 @@ var _ = Describe("ToMediaFile", func() {
 			Expect(byFolder.AlbumID).ToNot(Equal(byTags.AlbumID))
 			Expect(byFolder.AlbumID).To(Equal(md.AlbumID(byFolder, "folder")))
 			Expect(byFolder.PID).ToNot(Equal(byTags.PID))
+		})
+	})
+
+	Describe("Album name", func() {
+		It("uses the album tag when present", func() {
+			mf = toMediaFile(model.RawTags{"ALBUM": {"Kind of Blue"}, "TITLE": {"So What"}})
+			Expect(mf.Album).To(Equal("Kind of Blue"))
+		})
+
+		It("falls back to the title for an untagged single", func() {
+			mf = toMediaFile(model.RawTags{"TITLE": {"So What"}})
+			Expect(mf.Album).To(Equal("So What"))
+		})
+
+		It("keeps the unknown album when the file has no album and no title", func() {
+			mf = toMediaFile(model.RawTags{})
+			Expect(mf.Album).To(Equal(consts.UnknownAlbum))
 		})
 	})
 
